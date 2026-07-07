@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Etcétera · Inventario Cíclico</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Roboto+Mono:wght@500;700&display=swap" rel="stylesheet" />
+<style>
+  :root{--ink:#16181d;--ink-soft:#2a2e38;--surface:#eef0f4;--card:#fff;--line:#dfe3ea;--muted:#6b7280;--gold:#908448;--gold-soft:#f6f0dc;--gold-line:#e0d5a8;--purple:#2e0a4d;--purple-press:#210738;--over:#1e9e5a;--short:#e5484d;--radius:14px;--mono:'Roboto Mono',ui-monospace,monospace;--ui:'Inter',system-ui,sans-serif;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:var(--ui);background:var(--surface);color:var(--ink);-webkit-font-smoothing:antialiased;min-height:100vh;}
+  .app{max-width:820px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;}
+
+  /* Topbar */
+  .topbar{background:#fff;border-bottom:1px solid var(--line);padding:12px 16px;position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;}
+  .mark{width:34px;height:34px;border-radius:9px;background:var(--purple);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:19px;flex:none;font-family:Georgia,serif;}
+  .brand-title{font-size:14px;font-weight:800;color:var(--purple);letter-spacing:.01em;line-height:1.1;}
+  .brand-sub{font-size:11px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;}
+  .top-right{margin-left:auto;display:flex;align-items:center;gap:8px;}
+  .dot{width:9px;height:9px;border-radius:50%;background:#9aa2b1;flex:none;}
+  .dot.ok{background:#29c46a;box-shadow:0 0 0 3px rgba(41,196,106,.2);}
+  .dot.err{background:var(--short);}
+  .back{background:none;border:none;color:var(--muted);font-family:var(--ui);font-size:13px;font-weight:600;cursor:pointer;padding:6px 8px;}
+
+  .stage{flex:1;padding:16px;display:flex;flex-direction:column;gap:14px;}
+  h2.sec{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);}
+
+  /* Role gate */
+  .gate{display:flex;flex-direction:column;gap:14px;max-width:440px;margin:8vh auto 0;width:100%;}
+  .gate .role{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 20px;cursor:pointer;text-align:left;display:flex;gap:16px;align-items:center;transition:.12s;}
+  .gate .role:hover{border-color:var(--gold);box-shadow:0 4px 20px rgba(46,10,77,.06);}
+  .gate .role .ic{width:46px;height:46px;border-radius:12px;background:var(--gold-soft);color:var(--gold);display:flex;align-items:center;justify-content:center;flex:none;}
+  .gate .role.pp .ic{background:#f3ecfb;color:var(--purple);}
+  .gate .role .t{font-size:17px;font-weight:700;color:var(--ink);}
+  .gate .role .d{font-size:13px;color:var(--muted);margin-top:3px;}
+
+  /* Tabs */
+  .tabs{display:flex;gap:6px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:5px;overflow-x:auto;}
+  .tabs button{flex:1;white-space:nowrap;border:none;background:none;font-family:var(--ui);font-size:13px;font-weight:700;color:var(--muted);padding:9px 12px;border-radius:9px;cursor:pointer;}
+  .tabs button.active{background:var(--purple);color:#fff;}
+
+  /* Inputs */
+  .field-label{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:5px;display:block;}
+  input.txt,select.txt{width:100%;font-family:var(--ui);font-size:15px;padding:12px 13px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);}
+  input.txt:focus,select.txt:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(144,132,72,.15);}
+
+  /* Filtros grid */
+  .filters{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;}
+  .filt{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+  .filt-head{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;user-select:none;}
+  .filt-head .nm{font-size:13px;font-weight:700;color:var(--ink);}
+  .filt-head .cnt{margin-left:auto;font-family:var(--mono);font-size:12px;font-weight:700;color:#fff;background:var(--gold);border-radius:999px;min-width:22px;height:20px;display:none;align-items:center;justify-content:center;padding:0 6px;}
+  .filt-head .cnt.on{display:flex;}
+  .filt-head .chev{color:var(--muted);transition:.15s;}
+  .filt.open .filt-head .chev{transform:rotate(180deg);}
+  .filt-body{display:none;border-top:1px solid var(--line);padding:8px;}
+  .filt.open .filt-body{display:block;}
+  .filt-body input.search{width:100%;font-size:13px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;}
+  .opts{max-height:190px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;}
+  .opt{display:flex;align-items:center;gap:8px;padding:6px 6px;border-radius:7px;cursor:pointer;font-size:13px;}
+  .opt:hover{background:var(--surface);}
+  .opt input{width:16px;height:16px;accent-color:var(--purple);}
+
+  /* Sucursales pick */
+  .suc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;}
+  .suc-pick{display:flex;align-items:center;gap:9px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer;font-size:13px;}
+  .suc-pick input{width:17px;height:17px;accent-color:var(--purple);}
+  .suc-pick.on{border-color:var(--purple);box-shadow:0 0 0 2px rgba(46,10,77,.12);}
+
+  /* Preview bar / sticky action */
+  .previewbar{position:sticky;bottom:0;background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 14px;display:flex;align-items:center;gap:14px;box-shadow:0 -6px 20px rgba(20,22,25,.05);}
+  .previewbar .pv{display:flex;flex-direction:column;}
+  .previewbar .pv .n{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--purple);line-height:1;}
+  .previewbar .pv .l{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);}
+  .btn{border:none;border-radius:11px;font-family:var(--ui);font-weight:700;cursor:pointer;font-size:14px;padding:12px 18px;}
+  .btn.purple{background:var(--purple);color:#fff;} .btn.purple:active{background:var(--purple-press);}
+  .btn.purple:disabled{opacity:.45;cursor:default;}
+  .btn.ghost{background:#fff;border:1px solid var(--line);color:var(--ink);}
+  .btn.gold{background:var(--gold);color:#fff;}
+  .btn.green{background:var(--over);color:#fff;}
+  .btn.red{background:#fdecec;color:var(--short);border:1px solid #f2c0c2;}
+  .btn.sm{padding:8px 12px;font-size:13px;border-radius:9px;}
+  .btn.full{width:100%;}
+  .grow{flex:1;}
+
+  /* Cards / lists */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;}
+  .tarea-card{display:flex;flex-direction:column;gap:10px;}
+  .tarea-card .h{display:flex;align-items:baseline;gap:10px;}
+  .tarea-card .h .nm{font-size:16px;font-weight:700;}
+  .tarea-card .h .meta{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--muted);}
+  .pills{display:flex;flex-wrap:wrap;gap:6px;}
+  .pill{font-size:11px;font-weight:700;border-radius:999px;padding:4px 9px;background:var(--surface);color:var(--muted);border:1px solid var(--line);}
+  .pill.pendiente{background:#f4f5f7;color:#6b7280;}
+  .pill.en_conteo{background:#fff6e6;color:#a9711b;border-color:#f0d9ac;}
+  .pill.terminada{background:#eef4ff;color:#2b5fb3;border-color:#c9dbf7;}
+  .pill.en_revision{background:#f3ecfb;color:var(--purple);border-color:#dcc9f2;}
+  .pill.aprobada{background:#e7f6ee;color:#1e7a47;border-color:#9ddcbb;}
+
+  /* Count screen */
+  .count-list{display:flex;flex-direction:column;gap:10px;}
+  .pcard{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;display:flex;gap:12px;align-items:center;}
+  .pcard.done{border-color:#9ddcbb;box-shadow:0 0 0 2px rgba(30,158,90,.12);}
+  .pcard .ph{width:64px;height:64px;border-radius:10px;background:#f3f5f9;flex:none;object-fit:contain;display:flex;align-items:center;justify-content:center;color:#b4bbc7;font-size:10px;text-align:center;overflow:hidden;}
+  .pcard .ph img{width:100%;height:100%;object-fit:contain;}
+  .pcard .info{flex:1;min-width:0;}
+  .pcard .info .nm{font-size:14px;font-weight:700;line-height:1.25;}
+  .pcard .info .cd{font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:2px;}
+  .pcard .info .id{font-size:11px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .qty{display:flex;align-items:center;gap:6px;flex:none;}
+  .qty button{width:38px;height:40px;border:1px solid var(--line);background:#f7f8fb;border-radius:10px;font-size:22px;font-weight:700;cursor:pointer;color:var(--ink);line-height:1;}
+  .qty button:active{background:#eceff4;}
+  .qty input{width:56px;height:40px;text-align:center;font-family:var(--mono);font-size:17px;font-weight:700;border:2px solid var(--line);border-radius:10px;color:var(--ink);}
+  .qty input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(144,132,72,.15);}
+
+  /* Review table */
+  .rev{display:flex;flex-direction:column;gap:8px;}
+  .rev-row{display:grid;grid-template-columns:1fr auto auto auto auto;gap:10px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;}
+  .rev-row.rej{background:#fdf4f4;border-color:#f2c0c2;}
+  .rev-row .nm{font-size:13px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .rev-row .nm .cd{font-family:var(--mono);font-size:11px;color:var(--muted);}
+  .rev-num{font-family:var(--mono);font-size:15px;font-weight:700;text-align:right;min-width:44px;}
+  .rev-num .k{display:block;font-family:var(--ui);font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:700;}
+  .rev-num.pos{color:var(--over);} .rev-num.neg{color:var(--short);}
+  .rev-row .rj{width:34px;height:34px;border-radius:9px;border:1px solid var(--line);background:#fff;cursor:pointer;font-size:15px;color:var(--muted);}
+  .rev-row.rej .rj{background:var(--short);color:#fff;border-color:var(--short);}
+  .revhead{display:grid;grid-template-columns:1fr auto auto auto auto;gap:10px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:0 12px;font-weight:700;}
+  .revhead span{text-align:right;} .revhead span:first-child{text-align:left;}
+
+  /* Dashboard */
+  .dash-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;}
+  .dcell{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;}
+  .dcell .nm{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .bar{height:7px;border-radius:99px;background:var(--surface);overflow:hidden;}
+  .bar > i{display:block;height:100%;background:var(--gold);border-radius:99px;}
+  .dcell .prog{font-family:var(--mono);font-size:12px;color:var(--muted);}
+  .stats{display:flex;gap:10px;flex-wrap:wrap;}
+  .stat{flex:1;min-width:90px;background:#faf7fd;border:1px solid #e6dcf2;border-radius:12px;padding:12px 10px;text-align:center;}
+  .stat .n{font-family:var(--mono);font-size:26px;font-weight:700;color:var(--purple);line-height:1;}
+  .stat .l{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-top:4px;}
+
+  .status{min-height:20px;font-size:13px;font-weight:600;text-align:center;}
+  .status.ok{color:var(--over);} .status.err{color:var(--short);} .status.info{color:var(--muted);}
+  .empty{text-align:center;color:var(--muted);font-size:14px;padding:26px;}
+  .muted{color:var(--muted);font-size:13px;}
+  .spin{display:inline-block;width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--purple);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-3px;}
+  @keyframes sp{to{transform:rotate(360deg);}}
+  .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .searchbar{flex:1;min-width:160px;}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="mark">e</div>
+    <div>
+      <div class="brand-title">Inventario Cíclico</div>
+      <div class="brand-sub" id="crumb">etcétera accesorios</div>
+    </div>
+    <div class="top-right">
+      <button class="back" id="backBtn" style="display:none" onclick="goHome()">← Inicio</button>
+      <span class="dot" id="dot" title="Conexión"></span>
+    </div>
+  </div>
+
+  <div class="stage" id="stage"></div>
+</div>
+
+<script>
+const FN = "/.netlify/functions/odoo-cc";
+async function api(action, payload = {}) {
+  const r = await fetch(FN, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, payload }) });
+  let d; try { d = await r.json(); } catch { throw new Error("Respuesta inválida del servidor"); }
+  if (!r.ok || d.error) throw new Error(d.error || ("HTTP " + r.status));
+  return d.result;
+}
+const $ = (s, r = document) => r.querySelector(s);
+const el = (t, c, h) => { const e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; };
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
+const stage = $("#stage");
+function crumb(t){ $("#crumb").textContent = t; }
+function setDot(s){ $("#dot").className = "dot" + (s ? " ok" : " err"); }
+
+// ------- Ping -------
+api("ping").then(() => setDot(true)).catch(() => setDot(false));
+
+// ------- Estado global -------
+const S = { filterOpts: null, sucursales: null, selFilters: {}, selSuc: new Set(), usuario: "" };
+
+function goHome(){ $("#backBtn").style.display = "none"; renderGate(); }
+
+// =====================================================
+//  GATE
+// =====================================================
+function renderGate(){
+  crumb("etcétera accesorios");
+  stage.innerHTML = "";
+  const g = el("div", "gate");
+  g.appendChild(role("pp", "Administración", "Crear tareas, revisar y aprobar, ver avance", svgAdmin, renderAdmin));
+  g.appendChild(role("", "Soy Sucursal", "Contar los productos que me enviaron", svgStore, renderSucursalStart));
+  stage.appendChild(g);
+}
+function role(cls, t, d, ic, fn){
+  const b = el("button", "role " + cls);
+  b.innerHTML = `<div class="ic">${ic}</div><div><div class="t">${t}</div><div class="d">${d}</div></div>`;
+  b.onclick = () => { $("#backBtn").style.display = "inline-block"; fn(); };
+  return b;
+}
+
+// =====================================================
+//  ADMIN
+// =====================================================
+let adminTab = "nueva";
+function renderAdmin(){
+  crumb("Administración");
+  stage.innerHTML = "";
+  const tabs = el("div", "tabs");
+  [["nueva","Nueva tarea"],["tareas","Tareas"],["revision","Revisión"],["dashboard","Dashboard"]].forEach(([k,l])=>{
+    const b = el("button", adminTab===k?"active":"", l);
+    b.onclick = () => { adminTab = k; renderAdmin(); };
+    tabs.appendChild(b);
+  });
+  stage.appendChild(tabs);
+  const body = el("div"); body.id = "adminBody"; stage.appendChild(body);
+  if (adminTab === "nueva") renderNueva(body);
+  else if (adminTab === "tareas") renderTareas(body);
+  else if (adminTab === "revision") renderRevisionPick(body);
+  else renderDashboardPick(body);
+}
+
+// ---------- Nueva tarea ----------
+async function renderNueva(body){
+  body.innerHTML = '<div class="status info" style="padding:20px"><span class="spin"></span> Cargando catálogo…</div>';
+  try {
+    if (!S.filterOpts) S.filterOpts = await api("getFilterOptions");
+    if (!S.sucursales) S.sucursales = await api("listSucursales");
+  } catch (e) { body.innerHTML = `<div class="status err" style="padding:20px">${esc(e.message)}</div>`; return; }
+  body.innerHTML = "";
+
+  const nameWrap = el("div", "card");
+  nameWrap.innerHTML = `<label class="field-label">Nombre de la tarea</label>`;
+  const nameInp = el("input", "txt"); nameInp.placeholder = "Ej. Cíclico bolsos julio";
+  nameInp.oninput = () => S.taskName = nameInp.value;
+  nameWrap.appendChild(nameInp);
+  body.appendChild(nameWrap);
+
+  body.appendChild(el("h2", "sec", "1 · Filtrar productos"));
+  const fg = el("div", "filters");
+  Object.keys(S.filterOpts).forEach((f) => fg.appendChild(filterBox(f, S.filterOpts[f])));
+  body.appendChild(fg);
+
+  body.appendChild(el("h2", "sec", "2 · Sucursales que van a contar"));
+  const toolbar = el("div", "toolbar");
+  const allBtn = el("button", "btn ghost sm", "Seleccionar todas");
+  allBtn.onclick = () => { S.selSuc = new Set(S.sucursales.map(s=>s.id)); renderNueva(body); };
+  const noneBtn = el("button", "btn ghost sm", "Ninguna");
+  noneBtn.onclick = () => { S.selSuc = new Set(); renderNueva(body); };
+  toolbar.appendChild(allBtn); toolbar.appendChild(noneBtn);
+  const selCnt = el("span", "muted", `${S.selSuc.size} de ${S.sucursales.length}`);
+  toolbar.appendChild(selCnt);
+  body.appendChild(toolbar);
+
+  const sg = el("div", "suc-grid");
+  S.sucursales.forEach((s) => {
+    const on = S.selSuc.has(s.id);
+    const c = el("label", "suc-pick" + (on?" on":""));
+    c.innerHTML = `<input type="checkbox" ${on?"checked":""}><span>${esc(shortLoc(s.complete_name))}</span>`;
+    c.querySelector("input").onchange = (e) => { e.target.checked ? S.selSuc.add(s.id) : S.selSuc.delete(s.id); renderNueva(body); };
+    sg.appendChild(c);
+  });
+  body.appendChild(sg);
+
+  // Preview bar
+  const bar = el("div", "previewbar");
+  bar.innerHTML = `<div class="pv"><span class="n" id="pvT">–</span><span class="l">Productos</span></div>
+                   <div class="pv"><span class="n" id="pvV">–</span><span class="l">Variantes</span></div>
+                   <div class="grow"></div>`;
+  const launch = el("button", "btn purple", "Lanzar tarea");
+  launch.id = "launchBtn";
+  launch.onclick = () => lanzar(nameInp.value);
+  bar.appendChild(launch);
+  body.appendChild(bar);
+  const st = el("div", "status"); st.id = "nuevaStatus"; body.appendChild(st);
+
+  refreshPreview();
+}
+function shortLoc(cn){ // "Empresa / Tienda X / Existencias" -> "Tienda X"
+  const parts = String(cn||"").split("/").map(s=>s.trim()).filter(Boolean);
+  const i = parts.findIndex(p=>/existencias/i.test(p));
+  return i>0 ? parts[i-1] : (parts[parts.length-1]||cn);
+}
+function filterBox(f, cfg){
+  const sel = S.selFilters[f] || (S.selFilters[f] = new Set());
+  const box = el("div", "filt");
+  box.innerHTML = `<div class="filt-head"><span class="nm">${esc(cfg.label)}</span>
+    <span class="cnt ${sel.size?"on":""}">${sel.size||""}</span>
+    <span class="chev">▾</span></div>
+    <div class="filt-body"><input class="search" placeholder="Buscar…"><div class="opts"></div></div>`;
+  box.querySelector(".filt-head").onclick = () => box.classList.toggle("open");
+  const opts = box.querySelector(".opts");
+  const render = (q) => {
+    opts.innerHTML = "";
+    cfg.options.filter(o => !q || o.toLowerCase().includes(q.toLowerCase())).slice(0, 400).forEach((o) => {
+      const on = sel.has(o);
+      const row = el("label", "opt");
+      row.innerHTML = `<input type="checkbox" ${on?"checked":""}><span>${esc(o)}</span>`;
+      row.querySelector("input").onchange = (e) => {
+        e.target.checked ? sel.add(o) : sel.delete(o);
+        box.querySelector(".cnt").textContent = sel.size || "";
+        box.querySelector(".cnt").classList.toggle("on", !!sel.size);
+        refreshPreview();
+      };
+      opts.appendChild(row);
+    });
+  };
+  render("");
+  box.querySelector(".search").oninput = (e) => render(e.target.value);
+  return box;
+}
+let pvTimer = null;
+function collectFilters(){
+  const out = {};
+  Object.keys(S.selFilters).forEach((f) => { if (S.selFilters[f].size) out[f] = Array.from(S.selFilters[f]); });
+  return out;
+}
+function refreshPreview(){
+  clearTimeout(pvTimer);
+  const filters = collectFilters();
+  const launch = $("#launchBtn");
+  const hasFilter = Object.keys(filters).length > 0;
+  if (launch) launch.disabled = !(hasFilter && S.selSuc.size);
+  if (!hasFilter){ if($("#pvT"))$("#pvT").textContent="0"; if($("#pvV"))$("#pvV").textContent="0"; return; }
+  if ($("#pvT")) $("#pvT").innerHTML = '<span class="spin"></span>';
+  pvTimer = setTimeout(async () => {
+    try {
+      const r = await api("previewProductos", { filters });
+      if ($("#pvT")) $("#pvT").textContent = r.templates.toLocaleString();
+      if ($("#pvV")) $("#pvV").textContent = r.variants.toLocaleString();
+    } catch(e){ if($("#pvT"))$("#pvT").textContent="!"; }
+  }, 450);
+}
+async function lanzar(nombre){
+  const filters = collectFilters();
+  if (!Object.keys(filters).length) return setStatus("nuevaStatus","Elige al menos un filtro.","err");
+  if (!S.selSuc.size) return setStatus("nuevaStatus","Elige al menos una sucursal.","err");
+  const sucs = S.sucursales.filter(s => S.selSuc.has(s.id)).map(s => ({ id: s.id, name: shortLoc(s.complete_name) }));
+  const btn = $("#launchBtn"); btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Creando…';
+  setStatus("nuevaStatus","","");
+  try {
+    const r = await api("crearTarea", { nombre, filters, sucursales: sucs, usuario: S.usuario || "admin" });
+    S.selFilters = {}; S.selSuc = new Set();
+    setStatus("nuevaStatus", `Tarea "${esc(r.nombre)}" creada: ${r.productos} variantes → ${r.sucursales} sucursales.`, "ok");
+    adminTab = "dashboard"; selectedTarea = r.tarea_id; renderAdmin();
+  } catch(e){ setStatus("nuevaStatus", e.message, "err"); btn.disabled=false; btn.textContent="Lanzar tarea"; }
+}
+function setStatus(id, msg, cls){ const e=$("#"+id); if(!e)return; e.className="status "+(cls||""); e.textContent=msg; }
+
+// ---------- Lista de tareas ----------
+async function renderTareas(body){
+  body.innerHTML = '<div class="status info" style="padding:20px"><span class="spin"></span> Cargando…</div>';
+  let tareas; try { tareas = await api("listTareas"); } catch(e){ body.innerHTML=`<div class="status err">${esc(e.message)}</div>`; return; }
+  body.innerHTML = "";
+  if (!tareas.length){ body.appendChild(el("div","empty","No hay tareas todavía. Crea una en «Nueva tarea».")); return; }
+  tareas.forEach((t) => {
+    const s = t.sucursales || {};
+    const c = el("div", "card tarea-card");
+    c.innerHTML = `<div class="h"><span class="nm">${esc(t.nombre)}</span>
+      <span class="meta">${t.productos} variantes · ${s.total||0} suc.</span></div>
+      <div class="pills">
+        ${pill("pendiente",s.pendiente)}${pill("en_conteo",s.en_conteo)}${pill("terminada",s.terminada)}
+        ${pill("en_revision",s.en_revision)}${pill("aprobada",s.aprobada)}
+        <span class="pill">${t.estado==="cerrada"?"Cerrada":"Activa"}</span>
+      </div>`;
+    const tb = el("div","toolbar");
+    const dashB = el("button","btn ghost sm","Ver avance");
+    dashB.onclick = () => { selectedTarea=t.id; adminTab="dashboard"; renderAdmin(); };
+    const revB = el("button","btn ghost sm","Revisar");
+    revB.onclick = () => { selectedTarea=t.id; adminTab="revision"; renderAdmin(); };
+    const closeB = el("button","btn ghost sm", t.estado==="cerrada"?"Reabrir":"Cerrar");
+    closeB.onclick = async () => { await api("setTareaEstado",{tarea_id:t.id,estado:t.estado==="cerrada"?"activa":"cerrada"}); renderTareas(body); };
+    tb.appendChild(dashB); tb.appendChild(revB); tb.appendChild(closeB);
+    c.appendChild(tb);
+    body.appendChild(c);
+  });
+}
+function pill(k,n){ if(!n) return ""; return `<span class="pill ${k}">${esc(estadoLbl(k))}: ${n}</span>`; }
+function estadoLbl(k){ return ({pendiente:"Pendiente",en_conteo:"En conteo",terminada:"Terminada",en_revision:"En revisión",aprobada:"Aprobada"})[k]||k; }
+
+// ---------- Dashboard ----------
+let selectedTarea = null;
+async function renderDashboardPick(body){
+  await pickTarea(body, "dashboard", renderDashboard);
+}
+async function pickTarea(body, kind, next){
+  body.innerHTML = '<div class="status info" style="padding:20px"><span class="spin"></span> Cargando…</div>';
+  let tareas; try { tareas = await api("listTareas"); } catch(e){ body.innerHTML=`<div class="status err">${esc(e.message)}</div>`; return; }
+  body.innerHTML = "";
+  if (!tareas.length){ body.appendChild(el("div","empty","No hay tareas.")); return; }
+  const lbl = el("label","field-label","Elige una tarea"); body.appendChild(lbl);
+  const sel = el("select","txt");
+  sel.innerHTML = `<option value="">—</option>` + tareas.map(t=>`<option value="${t.id}" ${selectedTarea==t.id?"selected":""}>${esc(t.nombre)} (${t.productos} var.)</option>`).join("");
+  sel.onchange = () => { selectedTarea = sel.value ? Number(sel.value) : null; const box=$("#pickBody"); box.innerHTML=""; if(selectedTarea) next(box); };
+  body.appendChild(sel);
+  const box = el("div"); box.id="pickBody"; box.style.marginTop="14px"; body.appendChild(box);
+  if (selectedTarea) next(box);
+}
+async function renderDashboard(box){
+  box.innerHTML = '<div class="status info"><span class="spin"></span> Cargando avance…</div>';
+  let d; try { d = await api("dashboard",{tarea_id:selectedTarea}); } catch(e){ box.innerHTML=`<div class="status err">${esc(e.message)}</div>`; return; }
+  box.innerHTML = "";
+  const cnt = { pendiente:0,en_conteo:0,terminada:0,en_revision:0,aprobada:0 };
+  d.sucursales.forEach(s => { if(cnt[s.estado]!=null) cnt[s.estado]++; });
+  const stats = el("div","stats");
+  [["aprobada","Aprobadas"],["en_revision","En revisión"],["terminada","Terminadas"],["en_conteo","En conteo"],["pendiente","Pendientes"]].forEach(([k,l])=>{
+    const s = el("div","stat"); s.innerHTML = `<div class="n">${cnt[k]}</div><div class="l">${l}</div>`; stats.appendChild(s);
+  });
+  box.appendChild(stats);
+  box.appendChild(el("div","muted",`${d.total_productos} variantes por sucursal · ${d.sucursales.length} sucursales`));
+  const grid = el("div","dash-grid");
+  d.sucursales.forEach((s) => {
+    const pct = d.total_productos ? Math.round(100*s.contados/d.total_productos) : 0;
+    const c = el("div","dcell");
+    c.innerHTML = `<div class="nm">${esc(s.location_name)}</div>
+      <span class="pill ${s.estado}">${estadoLbl(s.estado)}</span>
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      <div class="prog">${s.contados}/${d.total_productos} · ${pct}%</div>`;
+    grid.appendChild(c);
+  });
+  box.appendChild(grid);
+  const rf = el("button","btn ghost sm","↻ Actualizar"); rf.style.marginTop="12px";
+  rf.onclick = () => renderDashboard(box); box.appendChild(rf);
+}
+
+// ---------- Revisión ----------
+async function renderRevisionPick(body){
+  await pickTarea(body, "revision", renderRevisionSucList);
+}
+async function renderRevisionSucList(box){
+  box.innerHTML = '<div class="status info"><span class="spin"></span> Cargando sucursales…</div>';
+  let d; try { d = await api("dashboard",{tarea_id:selectedTarea}); } catch(e){ box.innerHTML=`<div class="status err">${esc(e.message)}</div>`; return; }
+  box.innerHTML = "";
+  const ready = d.sucursales.filter(s => s.estado==="terminada" || s.estado==="en_revision");
+  const rest = d.sucursales.filter(s => !(s.estado==="terminada"||s.estado==="en_revision"));
+  if (!ready.length) box.appendChild(el("div","muted","Ninguna sucursal ha terminado aún. Puedes revisar las que estén en otro estado abajo."));
+  const mk = (s) => {
+    const c = el("div","card"); c.style.display="flex"; c.style.alignItems="center"; c.style.gap="10px";
+    c.innerHTML = `<div style="flex:1"><b>${esc(s.location_name)}</b> <span class="pill ${s.estado}">${estadoLbl(s.estado)}</span></div>`;
+    const b = el("button","btn "+(s.estado==="aprobada"?"ghost":"purple")+" sm", s.estado==="aprobada"?"Ver":"Revisar");
+    b.onclick = () => renderRevision(box, s);
+    c.appendChild(b); return c;
+  };
+  ready.forEach(s => box.appendChild(mk(s)));
+  if (rest.length){ box.appendChild(el("h2","sec","Otras sucursales")); rest.forEach(s => box.appendChild(mk(s))); }
+}
+async function renderRevision(box, suc){
+  box.innerHTML = `<button class="back" onclick="adminTab='revision';renderAdmin()">← Sucursales</button>
+    <div class="status info"><span class="spin"></span> Cargando conteo…</div>`;
+  let d; try { d = await api("revisionData",{tarea_id:selectedTarea, location_id:suc.location_id}); } catch(e){ box.innerHTML=`<div class="status err">${esc(e.message)}</div>`; return; }
+  box.innerHTML = `<button class="back" onclick="adminTab='revision';renderAdmin()">← Sucursales</button>`;
+  box.appendChild(el("h2","sec",`${esc(suc.location_name)} — contado vs. teórico`));
+  const rejected = new Set(d.productos.filter(p=>p.review==="rechazada").map(p=>p.product_id));
+
+  const summary = el("div","stats");
+  summary.innerHTML = `<div class="stat"><div class="n" id="rSum">0</div><div class="l">Con diferencia</div></div>
+    <div class="stat"><div class="n" id="rRej">${rejected.size}</div><div class="l">Rechazadas</div></div>`;
+  box.appendChild(summary);
+
+  box.appendChild((()=>{const h=el("div","revhead");h.innerHTML=`<span>Producto</span><span>Cont.</span><span>Teór.</span><span>Dif.</span><span>Rech.</span>`;return h;})());
+  const list = el("div","rev"); box.appendChild(list);
+  let withDiff = 0;
+  d.productos.forEach((p) => {
+    if (p.diff !== 0) withDiff++;
+    const row = el("div","rev-row"+(rejected.has(p.product_id)?" rej":""));
+    row.innerHTML = `<div class="nm">${esc(p.name)}<br><span class="cd">${esc(p.code)}</span></div>
+      <div class="rev-num"><span class="k">Cont</span>${p.contado}</div>
+      <div class="rev-num"><span class="k">Teór</span>${p.teorico}</div>
+      <div class="rev-num ${p.diff>0?"pos":p.diff<0?"neg":""}"><span class="k">Dif</span>${p.diff>0?"+":""}${p.diff}</div>`;
+    const rj = el("button","rj", rejected.has(p.product_id)?"✕":"○");
+    rj.title = "Rechazar (regresa a la sucursal a recontar)";
+    rj.onclick = () => {
+      if (rejected.has(p.product_id)){ rejected.delete(p.product_id); row.classList.remove("rej"); rj.textContent="○"; }
+      else { rejected.add(p.product_id); row.classList.add("rej"); rj.textContent="✕"; }
+      $("#rRej").textContent = rejected.size;
+    };
+    row.appendChild(rj);
+    list.appendChild(row);
+  });
+  $("#rSum").textContent = withDiff;
+
+  const bar = el("div","previewbar");
+  const note = el("div","muted grow","Las líneas no rechazadas ajustarán Odoo. Las rechazadas regresan a la sucursal.");
+  bar.appendChild(note);
+  const appr = el("button","btn green","Aprobar sucursal");
+  appr.onclick = async () => {
+    if (!confirm(`Aprobar ${suc.location_name}?\nSe ajustarán en Odoo las líneas no rechazadas (${d.productos.length - rejected.size}).${rejected.size?`\n${rejected.size} regresan a recontar.`:""}`)) return;
+    appr.disabled=true; appr.innerHTML='<span class="spin"></span> Aprobando…';
+    try {
+      const r = await api("aprobarSucursal",{tarea_id:selectedTarea, location_id:suc.location_id, rechazadas:Array.from(rejected), usuario:S.usuario||"admin"});
+      box.innerHTML = `<div class="status ok" style="padding:24px">✓ ${r.aprobadas} líneas ajustadas en Odoo${r.aplicado?" (aplicado)":""}. ${r.rechazadas?r.rechazadas+" regresaron a la sucursal.":""}</div>`;
+      const bk = el("button","btn ghost full","← Volver a sucursales"); bk.onclick=()=>{adminTab="revision";renderAdmin();}; box.appendChild(bk);
+    } catch(e){ appr.disabled=false; appr.textContent="Aprobar sucursal"; box.appendChild(el("div","status err",e.message)); }
+  };
+  bar.appendChild(appr);
+  box.appendChild(bar);
+}
+
+// =====================================================
+//  SUCURSAL
+// =====================================================
+let sucLoc = null;   // {id, name}
+async function renderSucursalStart(){
+  crumb("Sucursal");
+  stage.innerHTML = '<div class="status info" style="padding:20px"><span class="spin"></span> Cargando sucursales…</div>';
+  let sucs; try { if(!S.sucursales) S.sucursales = await api("listSucursales"); sucs = S.sucursales; } catch(e){ stage.innerHTML=`<div class="status err">${esc(e.message)}</div>`; return; }
+  stage.innerHTML = "";
+  const card = el("div","card");
+  card.innerHTML = `<label class="field-label">Selecciona tu sucursal</label>`;
+  const sel = el("select","txt");
+  sel.innerHTML = `<option value="">—</option>` + sucs.map(s=>`<option value="${s.id}">${esc(shortLoc(s.complete_name))}</option>`).join("");
+  card.appendChild(sel);
+  stage.appendChild(card);
+  const box = el("div"); box.id="sucBody"; box.style.marginTop="14px"; stage.appendChild(box);
+  sel.onchange = () => {
+    const s = sucs.find(x=>x.id==sel.value);
+    sucLoc = s ? { id:s.id, name:shortLoc(s.complete_name) } : null;
+    box.innerHTML = "";
+    if (sucLoc){ crumb("Sucursal · "+sucLoc.name); renderSucTareas(box); }
+  };
+}
+async function renderSucTareas(box){
+  box.innerHTML = '<div class="status info"><span class="spin"></span> Buscando tus tareas…</div>';
+  let ts; try { ts = await api("sucursalTareas",{location_id:sucLoc.id}); } catch(e){ box.innerHTML=`<div class="status err">${esc(e.message)}</div>`; return; }
+  box.innerHTML = "";
+  if (!ts.length){ box.appendChild(el("div","empty","No tienes tareas de conteo asignadas por ahora.")); return; }
+  box.appendChild(el("h2","sec","Tus tareas de conteo"));
+  ts.forEach((t) => {
+    const pct = t.total ? Math.round(100*t.contados/t.total) : 0;
+    const c = el("div","card tarea-card");
+    c.innerHTML = `<div class="h"><span class="nm">${esc(t.nombre)}</span><span class="meta">${t.contados}/${t.total}</span></div>
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      <div class="pills"><span class="pill ${t.estado}">${estadoLbl(t.estado)}</span></div>`;
+    const b = el("button","btn "+(t.estado==="aprobada"?"ghost":"purple")+" full", t.estado==="aprobada"?"Ver (aprobada)":(t.estado==="terminada"?"Revisar mi conteo":"Contar"));
+    b.onclick = () => renderCount(t);
+    c.appendChild(b);
+    box.appendChild(c);
+  });
+}
+async function renderCount(tarea){
+  crumb("Sucursal · "+sucLoc.name);
+  stage.innerHTML = `<button class="back" onclick="backToSucTareas()">← Mis tareas</button>
+    <div class="status info"><span class="spin"></span> Cargando productos…</div>`;
+  let d; try { d = await api("sucursalTarea",{tarea_id:tarea.tarea_id, location_id:sucLoc.id}); } catch(e){ stage.innerHTML=`<div class="status err">${esc(e.message)}</div>`; return; }
+  stage.innerHTML = `<button class="back" onclick="backToSucTareas()">← Mis tareas</button>`;
+  const head = el("div"); head.innerHTML = `<h2 class="sec">${esc(tarea.nombre)} — ${d.productos.length} productos</h2>`;
+  stage.appendChild(head);
+
+  const search = el("input","txt searchbar"); search.placeholder="Buscar por nombre o código…"; search.style.marginBottom="4px";
+  stage.appendChild(search);
+
+  const list = el("div","count-list"); stage.appendChild(list);
+  const rows = {};
+  const draw = (q) => {
+    list.innerHTML = "";
+    d.productos.filter(p => !q || (p.name+" "+p.code+" "+p.barcode).toLowerCase().includes(q.toLowerCase())).forEach((p) => {
+      list.appendChild(pcard(tarea, p, rows));
+    });
+    lazyImages(Object.keys(rows));
+  };
+  search.oninput = () => draw(search.value);
+  draw("");
+
+  // barra terminar
+  const bar = el("div","previewbar");
+  const doneCount = () => d.productos.filter(p=>p.counted!=null).length;
+  const info = el("div","muted grow");
+  const upd = () => info.textContent = `${doneCount()} de ${d.productos.length} capturados`;
+  upd();
+  bar.appendChild(info);
+  const finBtn = el("button", "btn "+(d.estado==="aprobada"?"ghost":"gold"), d.estado==="terminada"?"Marcado terminado ✓":(d.estado==="aprobada"?"Aprobada":"Terminé"));
+  if (d.estado==="aprobada") finBtn.disabled = true;
+  finBtn.onclick = async () => {
+    if (!confirm("¿Marcar esta tarea como TERMINADA para tu sucursal? Avisará a administración para revisar.")) return;
+    finBtn.disabled=true; finBtn.innerHTML='<span class="spin"></span>';
+    try { await api("terminarSucursal",{tarea_id:tarea.tarea_id, location_id:sucLoc.id, usuario:sucLoc.name}); finBtn.textContent="Terminado ✓"; finBtn.className="btn green"; }
+    catch(e){ finBtn.disabled=false; finBtn.textContent="Terminé"; alert(e.message); }
+  };
+  bar.appendChild(finBtn);
+  stage.appendChild(bar);
+  stage._updDone = upd;
+}
+function backToSucTareas(){
+  crumb("Sucursal · "+sucLoc.name);
+  stage.innerHTML = "";
+  const box = el("div"); box.id="sucBody"; stage.appendChild(box);
+  // rebuild selector header
+  const back = el("button","back","← Cambiar sucursal"); back.onclick=renderSucursalStart; stage.insertBefore(back, box);
+  renderSucTareas(box);
+}
+function pcard(tarea, p, rows){
+  const c = el("div","pcard"+(p.counted!=null?" done":""));
+  const ident = identText(p.ident);
+  c.innerHTML = `<div class="ph" data-pid="${p.product_id}">…</div>
+    <div class="info"><div class="nm">${esc(p.name)}</div><div class="cd">${esc(p.code||p.barcode||"")}</div>${ident?`<div class="id">${esc(ident)}</div>`:""}</div>`;
+  rows[p.product_id] = c;
+  const qty = el("div","qty");
+  const minus = el("button",null,"−");
+  const inp = el("input"); inp.type="number"; inp.min="0"; inp.value = p.counted!=null?p.counted:""; inp.placeholder="0"; inp.inputMode="numeric";
+  const plus = el("button",null,"+");
+  const save = async (v) => {
+    const q = Math.max(0, parseInt(v,10)||0);
+    inp.value = q;
+    try { await api("setConteo",{tarea_id:tarea.tarea_id, location_id:sucLoc.id, product_id:p.product_id, qty:q}); p.counted=q; c.classList.add("done"); if(stage._updDone)stage._updDone(); }
+    catch(e){ alert(e.message); }
+  };
+  minus.onclick = () => save((parseInt(inp.value,10)||0)-1);
+  plus.onclick = () => save((parseInt(inp.value,10)||0)+1);
+  inp.onchange = () => save(inp.value);
+  qty.appendChild(minus); qty.appendChild(inp); qty.appendChild(plus);
+  c.appendChild(qty);
+  return c;
+}
+function identText(id){
+  if(!id) return "";
+  const parts=[];
+  [["x_familia_ident",""],["x_grupo_ident",""],["x_color1_ident",""],["x_talla_ident","T"]].forEach(([k,pfx])=>{ if(id[k]) parts.push((pfx?pfx+" ":"")+id[k]); });
+  return parts.join(" · ");
+}
+// Carga perezosa de fotos en lote
+const imgCache = {};
+async function lazyImages(pids){
+  const need = pids.map(Number).filter(id => !(id in imgCache));
+  if (!need.length){ paintImages(pids); return; }
+  for (let i=0;i<need.length;i+=50){
+    const batch = need.slice(i,i+50);
+    try { const r = await api("getImages",{ids:batch}); batch.forEach(id => imgCache[id]=r[id]||null); paintImages(batch); }
+    catch{ batch.forEach(id=>imgCache[id]=null); }
+  }
+}
+function paintImages(pids){
+  pids.forEach(id => {
+    const ph = document.querySelector(`.ph[data-pid="${id}"]`); if(!ph) return;
+    if (imgCache[id]) ph.innerHTML = `<img src="${imgCache[id]}" alt="">`;
+    else ph.textContent = "sin foto";
+  });
+}
+
+// Iconos
+const svgAdmin = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="8"/><rect x="12" y="6" width="3" height="12"/><rect x="17" y="13" width="3" height="5"/></svg>';
+const svgStore = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1-5h16l1 5"/><path d="M4 9v11h16V9"/><path d="M9 20v-6h6v6"/></svg>';
+
+renderGate();
+</script>
+</body>
+</html>
