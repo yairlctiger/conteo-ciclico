@@ -268,7 +268,7 @@ function renderAdmin(){
   crumb("Administración");
   stage.innerHTML = "";
   const tabs = el("div", "tabs");
-  [["nueva","Nuevo conteo cíclico"],["tareas","Conteos activos"],["revision","Revisión"],["dashboard","Dashboard"]].forEach(([k,l])=>{
+  [["nueva","Nuevo conteo cíclico"],["tareas","Conteos activos"],["revision","Revisión"],["resultados","Resultados"],["dashboard","Dashboard"]].forEach(([k,l])=>{
     const b = el("button", adminTab===k?"active":"", l);
     b.onclick = () => { adminTab = k; renderAdmin(); };
     tabs.appendChild(b);
@@ -278,6 +278,7 @@ function renderAdmin(){
   if (adminTab === "nueva") renderNueva(body);
   else if (adminTab === "tareas") renderTareas(body);
   else if (adminTab === "revision") renderRevisionPick(body);
+  else if (adminTab === "resultados") renderResultadosPick(body);
   else renderDashboardPick(body);
 }
 
@@ -291,15 +292,17 @@ async function renderNueva(body){
   body.innerHTML = "";
 
   const nameWrap = el("div", "card");
-  nameWrap.innerHTML = `<label class="field-label">Nombre de la tarea</label>`;
-  const nameInp = el("input", "txt"); nameInp.placeholder = "Ej. Cíclico bolsos julio";
-  nameInp.oninput = () => S.taskName = nameInp.value;
+  nameWrap.innerHTML = `<label class="field-label">Razón del conteo cíclico <span style="color:var(--short)">*</span></label>`;
+  const nameInp = el("input", "txt"); nameInp.placeholder = "Ej. Conteo mensual de bolsos"; nameInp.required = true;
+  nameInp.oninput = () => { S.taskName = nameInp.value; refreshPreview(); };
   nameWrap.appendChild(nameInp);
   body.appendChild(nameWrap);
 
   body.appendChild(el("h2", "sec", "1 · Filtrar productos"));
   const fg = el("div", "filters");
-  Object.keys(S.filterOpts).forEach((f) => fg.appendChild(filterBox(f, S.filterOpts[f])));
+  const FILTER_ORDER = ["x_familia_ident","x_grupo_ident","x_subgrupo_ident","x_caracteristica_ident","x_color1_ident","x_color2_ident","x_material1_ident","x_material2_ident","x_marca_ident","x_descuento_ident","x_temporada_ident","x_ao_ident","x_segmento_ident","x_talla_ident","x_acabado_ident","x_linea_ident"];
+  const ordered = FILTER_ORDER.filter(f => S.filterOpts[f]).concat(Object.keys(S.filterOpts).filter(f => !FILTER_ORDER.includes(f)));
+  ordered.forEach((f) => fg.appendChild(filterBox(f, S.filterOpts[f])));
   body.appendChild(fg);
 
   // 1b · Agregar productos manualmente (además de los filtros)
@@ -457,7 +460,8 @@ function refreshPreview(){
   const launch = $("#launchBtn");
   const hasFilter = Object.keys(filters).length > 0;
   const nMan = S.manuales.size;
-  if (launch) launch.disabled = !((hasFilter || nMan) && S.selSuc.size);
+  const hasName = (S.taskName || "").trim().length > 0;
+  if (launch) launch.disabled = !(hasName && (hasFilter || nMan) && S.selSuc.size);
   if ($("#pvM")) $("#pvM").textContent = nMan;
   if (!hasFilter){ if($("#pvT"))$("#pvT").textContent="0"; if($("#pvV"))$("#pvV").textContent=String(nMan); return; }
   if ($("#pvT")) $("#pvT").innerHTML = '<span class="spin"></span>';
@@ -498,6 +502,7 @@ async function loadPreviewList(){
   } catch(e){ box.innerHTML = `<div class="status err">${esc(e.message)}</div>`; }
 }
 async function lanzar(nombre){
+  if (!(nombre || "").trim()) return setStatus("nuevaStatus","Escribe la razón del conteo cíclico (obligatorio).","err");
   const filters = collectFilters();
   const manuales = Array.from(S.manuales.keys());
   if (!Object.keys(filters).length && !manuales.length) return setStatus("nuevaStatus","Agrega filtros o productos manuales.","err");
@@ -595,6 +600,39 @@ async function renderDashboard(box){
   box.appendChild(grid);
   const rf = el("button","btn ghost sm","↻ Actualizar"); rf.style.marginTop="12px";
   rf.onclick = () => renderDashboard(box); box.appendChild(rf);
+}
+
+// ---------- Resultados (sobrantes / faltantes) ----------
+async function renderResultadosPick(body){
+  await pickTarea(body, "resultados", renderResultados);
+}
+async function renderResultados(box){
+  box.innerHTML = '<div class="status info"><span class="spin"></span> Cargando resultados…</div>';
+  let d; try { d = await api("resultados", { tarea_id: selectedTarea }); } catch(e){ box.innerHTML=`<div class="status err">${esc(e.message)}</div>`; return; }
+  box.innerHTML = "";
+  if (!d.sucursales.length){ box.appendChild(el("div","empty","Aún no hay sucursales revisadas/aprobadas para esta tarea.")); return; }
+  const t = d.total;
+  const stats = el("div","stats");
+  stats.innerHTML = `
+    <div class="stat"><div class="n" style="color:var(--over)">+${t.sobrantes}</div><div class="l">Sobrantes</div></div>
+    <div class="stat"><div class="n" style="color:var(--short)">−${t.faltantes}</div><div class="l">Faltantes</div></div>
+    <div class="stat"><div class="n">${t.neto>0?"+":""}${t.neto}</div><div class="l">Neto</div></div>
+    <div class="stat"><div class="n">${t.dif_lineas}</div><div class="l">Líneas c/dif.</div></div>`;
+  box.appendChild(stats);
+  box.appendChild(el("div","muted",`${d.revisadas} líneas revisadas · ${d.sucursales.length} sucursales`));
+  box.appendChild((()=>{const hh=el("div","revhead");hh.innerHTML=`<span>Sucursal</span><span>Sobr.</span><span>Falt.</span><span>Neto</span><span>Líneas</span>`;return hh;})());
+  const list = el("div","rev");
+  d.sucursales.forEach((s) => {
+    const row = el("div","rev-row");
+    row.innerHTML = `<div class="nm">${esc(s.location_name)}<br><span class="cd">${s.aprobadas} aprob.${s.rechazadas?` · ${s.rechazadas} rech.`:""}</span></div>
+      <div class="rev-num pos"><span class="k">Sobr.</span>+${s.sobrantes}</div>
+      <div class="rev-num neg"><span class="k">Falt.</span>−${s.faltantes}</div>
+      <div class="rev-num ${s.neto>0?"pos":s.neto<0?"neg":""}"><span class="k">Neto</span>${s.neto>0?"+":""}${s.neto}</div>
+      <div class="rev-num"><span class="k">Dif.</span>${s.dif_lineas}</div>`;
+    list.appendChild(row);
+  });
+  box.appendChild(list);
+  const rf = el("button","btn ghost sm","↻ Actualizar"); rf.style.marginTop="12px"; rf.onclick=()=>renderResultados(box); box.appendChild(rf);
 }
 
 // ---------- Revisión ----------
