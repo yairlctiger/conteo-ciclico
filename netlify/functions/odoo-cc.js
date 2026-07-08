@@ -416,13 +416,37 @@ async function revisionData(uid, p) {
 }
 
 // Aprobar sucursal: líneas NO rechazadas ajustan Odoo; rechazadas regresan a conteo.
+// cache de branch por ubicación (evita releer en cada línea)
+const _branchCache = {};
+async function branchDeUbicacion(uid, locationId) {
+  if (locationId in _branchCache) return _branchCache[locationId];
+  let b = null;
+  try {
+    const loc = await execKw(uid, "stock.location", "read", [[locationId]], { fields: ["branch_id"] });
+    if (loc && loc[0] && Array.isArray(loc[0].branch_id)) b = loc[0].branch_id[0];
+  } catch (e) { b = null; }
+  _branchCache[locationId] = b;
+  return b;
+}
+
 async function adjustOdoo(uid, productId, locationId, counted) {
-  const ids = await execKw(uid, "stock.quant", "search", [[["product_id", "=", productId], ["location_id", "=", locationId]]]);
+  // Usa la sucursal (branch) de la propia ubicación para el ajuste
+  const branchId = await branchDeUbicacion(uid, locationId);
   const ctx = { context: { inventory_mode: true } };
+  if (branchId) { ctx.context.branch_id = branchId; ctx.context.allowed_branch_ids = [branchId]; }
+  const ids = await execKw(uid, "stock.quant", "search", [[["product_id", "=", productId], ["location_id", "=", locationId]]], ctx);
   let qid;
-  if (ids.length) { qid = ids[0]; await execKw(uid, "stock.quant", "write", [[qid], { inventory_quantity: counted }], ctx); }
-  else { qid = await execKw(uid, "stock.quant", "create", [{ product_id: productId, location_id: locationId, inventory_quantity: counted }], ctx); }
-  if (APPLY_ON_APPROVE) await execKw(uid, "stock.quant", "action_apply_inventory", [[qid]]);
+  if (ids.length) {
+    qid = ids[0];
+    const vals = { inventory_quantity: counted };
+    if (branchId) vals.branch_id = branchId;
+    await execKw(uid, "stock.quant", "write", [[qid], vals], ctx);
+  } else {
+    const vals = { product_id: productId, location_id: locationId, inventory_quantity: counted };
+    if (branchId) vals.branch_id = branchId;
+    qid = await execKw(uid, "stock.quant", "create", [vals], ctx);
+  }
+  if (APPLY_ON_APPROVE) await execKw(uid, "stock.quant", "action_apply_inventory", [[qid]], ctx);
   return qid;
 }
 
