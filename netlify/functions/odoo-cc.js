@@ -144,9 +144,29 @@ async function previewProductos(uid, p) {
   return { templates: tmplIds.length, variants };
 }
 
+// Lista real de variantes que se van a inventariar (para la vista previa)
+async function previewLista(uid, p) {
+  const domain = buildDomain(p.filters);
+  const tmplIds = await execKw(uid, "product.template", "search", [domain], { limit: 100000 });
+  if (!tmplIds.length) return { total: 0, productos: [] };
+  const tmpls = await execKw(uid, "product.template", "read", [tmplIds], { fields: ["id", "name"].concat(IDENT_FIELDS) });
+  const tmap = {}; tmpls.forEach((t) => (tmap[t.id] = t));
+  const total = await execKw(uid, "product.product", "search_count", [[["product_tmpl_id", "in", tmplIds]]]);
+  const variants = await execKw(uid, "product.product", "search_read",
+    [[["product_tmpl_id", "in", tmplIds]]],
+    { fields: ["id", "name", "default_code", "barcode", "product_tmpl_id"], limit: 500, order: "name asc" });
+  const productos = variants.map((v) => {
+    const tid = Array.isArray(v.product_tmpl_id) ? v.product_tmpl_id[0] : v.product_tmpl_id;
+    const t = tmap[tid] || {}; const ident = {};
+    IDENT_FIELDS.forEach((f) => (ident[f] = t[f] || null));
+    return { product_id: v.id, name: v.name, code: v.default_code || "", barcode: v.barcode || "", ident };
+  });
+  return { total, productos };
+}
+
 // ---------- Sucursales (ubicaciones internas /Existencias) ----------
 async function listSucursales(uid) {
-  const domain = [["usage", "=", "internal"], ["complete_name", "ilike", "Existencias"]];
+  const domain = [["usage", "=", "internal"], ["complete_name", "ilike", "Existencias"], ["complete_name", "not ilike", "CEDIS"]];
   const recs = await execKw(uid, "stock.location", "search_read", [domain], { fields: ["id", "name", "complete_name"], limit: 500 });
   recs.sort((a, b) => String(a.complete_name).localeCompare(String(b.complete_name)));
   return recs;
@@ -155,29 +175,43 @@ async function listSucursales(uid) {
 // ---------- Crear tarea ----------
 async function crearTarea(uid, p) {
   const nombre = (p.nombre || "").trim() || `Cíclico ${new Date().toISOString().slice(0, 10)}`;
-  const domain = buildDomain(p.filters);
-  const tmplIds = await execKw(uid, "product.template", "search", [domain], { limit: 100000 });
-  if (!tmplIds.length) throw new Error("Los filtros no arrojaron productos.");
+  const filters = p.filters || {};
+  const hasFilters = IDENT_FIELDS.some((f) => Array.isArray(filters[f]) && filters[f].length);
+  const manuales = Array.isArray(p.manuales) ? p.manuales.map(Number).filter(Boolean) : [];
   const sucs = Array.isArray(p.sucursales) ? p.sucursales : [];
   if (!sucs.length) throw new Error("Elige al menos una sucursal.");
 
+  // Reúne ids de variantes: por filtros + manuales (dedup)
+  const idSet = new Set(manuales);
+  if (hasFilters) {
+    const tmplIds = await execKw(uid, "product.template", "search", [buildDomain(filters)], { limit: 100000 });
+    if (tmplIds.length) {
+      const vids = await execKw(uid, "product.product", "search", [[["product_tmpl_id", "in", tmplIds]]], { limit: 100000 });
+      vids.forEach((id) => idSet.add(id));
+    }
+  }
+  if (!idSet.size) throw new Error("No hay productos: agrega filtros o productos manuales.");
+  const allIds = Array.from(idSet);
+
+  // Lee variantes (por lotes)
+  const variants = [];
+  for (let i = 0; i < allIds.length; i += 1000) {
+    const chunk = await execKw(uid, "product.product", "read", [allIds.slice(i, i + 1000)],
+      { fields: ["id", "name", "default_code", "barcode", "product_tmpl_id"] });
+    variants.push(...chunk);
+  }
   // Snapshot de identificadores por template
-  const tmpls = await execKw(uid, "product.template", "read", [tmplIds], { fields: ["id", "name"].concat(IDENT_FIELDS) });
+  const tids = Array.from(new Set(variants.map((v) => (Array.isArray(v.product_tmpl_id) ? v.product_tmpl_id[0] : v.product_tmpl_id))));
   const tmap = {};
-  tmpls.forEach((t) => (tmap[t.id] = t));
+  for (let i = 0; i < tids.length; i += 1000) {
+    const chunk = await execKw(uid, "product.template", "read", [tids.slice(i, i + 1000)], { fields: ["id"].concat(IDENT_FIELDS) });
+    chunk.forEach((t) => (tmap[t.id] = t));
+  }
 
-  // Variantes de esos templates
-  const variants = await execKw(uid, "product.product", "search_read",
-    [[["product_tmpl_id", "in", tmplIds]]],
-    { fields: ["id", "name", "default_code", "barcode", "product_tmpl_id"], limit: 100000 });
-  if (!variants.length) throw new Error("Los templates no tienen variantes activas.");
-
-  // Crea la tarea
   const [tarea] = await sbInsert("cc_tareas",
-    [{ nombre, filtros: p.filters || {}, creada_por: p.usuario || null, estado: "activa" }], true);
+    [{ nombre, filtros: filters, creada_por: p.usuario || null, estado: "activa" }], true);
   const tareaId = tarea.id;
 
-  // Productos de la tarea (variantes) con snapshot de identificadores
   const prodRows = variants.map((v) => {
     const tid = Array.isArray(v.product_tmpl_id) ? v.product_tmpl_id[0] : v.product_tmpl_id;
     const t = tmap[tid] || {};
@@ -185,21 +219,40 @@ async function crearTarea(uid, p) {
     IDENT_FIELDS.forEach((f) => (ident[f] = t[f] || null));
     return {
       tarea_id: tareaId, product_id: v.id, template_id: tid,
-      name: v.name, default_code: v.default_code || null, barcode: v.barcode || null,
-      ident,
+      name: v.name, default_code: v.default_code || null, barcode: v.barcode || null, ident,
     };
   });
-  // inserta por lotes de 500
   for (let i = 0; i < prodRows.length; i += 500) await sbInsert("cc_tarea_producto", prodRows.slice(i, i + 500));
 
-  // Sucursales de la tarea
   const sucRows = sucs.map((s) => ({
-    tarea_id: tareaId, location_id: s.id, location_name: s.name || s.complete_name || ("Ubic " + s.id),
-    estado: "pendiente",
+    tarea_id: tareaId, location_id: s.id, location_name: s.name || s.complete_name || ("Ubic " + s.id), estado: "pendiente",
   }));
   await sbInsert("cc_tarea_sucursal", sucRows);
 
   return { tarea_id: tareaId, nombre, productos: prodRows.length, sucursales: sucRows.length };
+}
+
+// Búsqueda de productos para agregar manualmente
+async function buscarProductos(uid, p) {
+  const q = (p.query || "").trim();
+  if (q.length < 2) return [];
+  const domain = ["&", ["active", "=", true], "|", "|",
+    ["name", "ilike", q], ["default_code", "ilike", q], ["barcode", "ilike", q]];
+  const vs = await execKw(uid, "product.product", "search_read", [domain],
+    { fields: ["id", "name", "default_code", "barcode", "product_tmpl_id"], limit: 30 });
+  const tids = Array.from(new Set(vs.map((v) => (Array.isArray(v.product_tmpl_id) ? v.product_tmpl_id[0] : v.product_tmpl_id))));
+  const tmap = {};
+  if (tids.length) {
+    const tmpls = await execKw(uid, "product.template", "read", [tids], { fields: ["id"].concat(IDENT_FIELDS) });
+    tmpls.forEach((t) => (tmap[t.id] = t));
+  }
+  return vs.map((v) => {
+    const tid = Array.isArray(v.product_tmpl_id) ? v.product_tmpl_id[0] : v.product_tmpl_id;
+    const t = tmap[tid] || {};
+    const ident = {};
+    IDENT_FIELDS.forEach((f) => (ident[f] = t[f] || null));
+    return { product_id: v.id, name: v.name, code: v.default_code || "", barcode: v.barcode || "", template_id: tid, ident };
+  });
 }
 
 // ---------- Listado de tareas (admin) ----------
@@ -230,6 +283,33 @@ async function dashboard(p) {
     total_productos: total,
     sucursales: sucs.map((s) => ({ ...s, contados: counted[s.location_id] || 0 })),
   };
+}
+
+// Resumen por sucursal para la lista de revisión (piezas esperadas vs contadas)
+async function revisionResumen(uid, p) {
+  const tareaId = p.tarea_id;
+  const sucs = await sbSelectAll(`cc_tarea_sucursal?tarea_id=eq.${tareaId}&select=location_id,location_name,estado&order=location_name.asc`);
+  const prods = await sbSelectAll(`cc_tarea_producto?tarea_id=eq.${tareaId}&select=product_id&order=id.asc`);
+  const pids = prods.map((r) => r.product_id);
+  const cts = await sbSelectAll(`cc_conteos?tarea_id=eq.${tareaId}&select=location_id,qty&order=id.asc`);
+  const contByLoc = {};
+  cts.forEach((r) => { contByLoc[r.location_id] = (contByLoc[r.location_id] || 0) + Number(r.qty || 0); });
+  const locIds = sucs.map((s) => s.location_id);
+  const espByLoc = {};
+  if (pids.length && locIds.length) {
+    const quants = await execKw(uid, "stock.quant", "search_read",
+      [[["location_id", "in", locIds], ["product_id", "in", pids]]],
+      { fields: ["location_id", "quantity"] });
+    quants.forEach((q) => {
+      const lid = Array.isArray(q.location_id) ? q.location_id[0] : q.location_id;
+      espByLoc[lid] = (espByLoc[lid] || 0) + Number(q.quantity || 0);
+    });
+  }
+  return { sucursales: sucs.map((s) => ({
+    location_id: s.location_id, location_name: s.location_name, estado: s.estado,
+    piezas_contadas: contByLoc[s.location_id] || 0,
+    piezas_esperadas: espByLoc[s.location_id] || 0,
+  })) };
 }
 
 // ---------- Sucursal: sus tareas ----------
@@ -377,6 +457,18 @@ async function aprobarSucursal(uid, p) {
   return { aprobadas, rechazadas: rejected.size, estado: nuevoEstado, aplicado: APPLY_ON_APPROVE };
 }
 
+// Aprobar TODAS las sucursales terminadas / en revisión (sin rechazos)
+async function aprobarTodas(uid, p) {
+  const tareaId = p.tarea_id;
+  const sucs = await sbSelectAll(`cc_tarea_sucursal?tarea_id=eq.${tareaId}&estado=in.(terminada,en_revision)&select=location_id&order=id.asc`);
+  let lineas = 0, n = 0;
+  for (const s of sucs) {
+    const r = await aprobarSucursal(uid, { tarea_id: tareaId, location_id: s.location_id, rechazadas: [], usuario: p.usuario || null });
+    lineas += r.aprobadas; n++;
+  }
+  return { sucursales: n, lineas, aplicado: APPLY_ON_APPROVE };
+}
+
 // Cerrar / reabrir tarea
 async function setTareaEstado(p) {
   await sbPatch(`cc_tareas?id=eq.${p.tarea_id}`, { estado: p.estado });
@@ -395,10 +487,13 @@ exports.handler = async (event) => {
       case "ping": result = { ok: true, uid }; break;
       case "getFilterOptions": result = await getFilterOptions(uid); break;
       case "previewProductos": result = await previewProductos(uid, payload); break;
+      case "previewLista": result = await previewLista(uid, payload); break;
       case "listSucursales": result = await listSucursales(uid); break;
       case "crearTarea": result = await crearTarea(uid, payload); break;
+      case "buscarProductos": result = await buscarProductos(uid, payload); break;
       case "listTareas": result = await listTareas(); break;
       case "dashboard": result = await dashboard(payload); break;
+      case "revisionResumen": result = await revisionResumen(uid, payload); break;
       case "sucursalTareas": result = await sucursalTareas(payload); break;
       case "sucursalTarea": result = await sucursalTarea(payload); break;
       case "getImages": result = await getImages(uid, payload); break;
@@ -406,6 +501,7 @@ exports.handler = async (event) => {
       case "terminarSucursal": result = await terminarSucursal(payload); break;
       case "revisionData": result = await revisionData(uid, payload); break;
       case "aprobarSucursal": result = await aprobarSucursal(uid, payload); break;
+      case "aprobarTodas": result = await aprobarTodas(uid, payload); break;
       case "setTareaEstado": result = await setTareaEstado(payload); break;
       default: return { statusCode: 400, headers, body: JSON.stringify({ error: `Acción desconocida: ${action}` }) };
     }
