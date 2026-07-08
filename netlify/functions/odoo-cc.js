@@ -27,7 +27,7 @@ const SB_KEY = process.env.SUPABASE_SERVICE_KEY;
 // Al aprobar: true = aplica el ajuste en Odoo (cambia el on-hand).
 // false = solo deja la cantidad "contada" en el ajuste de inventario, lista
 // para aplicar manualmente en Odoo. Cámbialo si prefieres no aplicar.
-const APPLY_ON_APPROVE = false;
+const APPLY_ON_APPROVE = true;
 
 // Campos identificadores (selection) en product.template.
 const IDENT_FIELDS = [
@@ -436,11 +436,24 @@ async function branchDeUbicacion(uid, locationId) {
   return b;
 }
 
+// Sucursales permitidas del usuario de integración (para el contexto del ajuste)
+let _userBranches = null;
+async function getUserBranches(uid) {
+  if (_userBranches) return _userBranches;
+  try {
+    const u = await execKw(uid, "res.users", "read", [[uid]], { fields: ["branch_ids"] });
+    _userBranches = (u && u[0] && Array.isArray(u[0].branch_ids)) ? u[0].branch_ids : [];
+  } catch (e) { _userBranches = []; }
+  return _userBranches;
+}
+
 async function adjustOdoo(uid, productId, locationId, counted) {
-  // NO restringimos allowed_branch_ids: el usuario ya tiene sus sucursales.
-  // Solo fijamos la branch de la ubicación al CREAR el quant (si no existía).
   const branchId = await branchDeUbicacion(uid, locationId);
+  // Pasamos TODAS las sucursales permitidas del usuario en el contexto, para que
+  // ni la ubicación de la tienda ni la virtual "Inventory adjustment" (Cedis) queden fuera.
+  const allowed = await getUserBranches(uid);
   const ctx = { context: { inventory_mode: true } };
+  if (allowed.length) ctx.context.allowed_branch_ids = allowed;
   const ids = await execKw(uid, "stock.quant", "search", [[["product_id", "=", productId], ["location_id", "=", locationId]]], ctx);
   let qid;
   if (ids.length) {
@@ -451,7 +464,7 @@ async function adjustOdoo(uid, productId, locationId, counted) {
     if (branchId) vals.branch_id = branchId;
     qid = await execKw(uid, "stock.quant", "create", [vals], ctx);
   }
-  // Con APPLY_ON_APPROVE=false NO se aplica: queda "contado" en Odoo, listo para aplicar ahí.
+  // Aplica el ajuste (mueve el stock real en Odoo)
   if (APPLY_ON_APPROVE) await execKw(uid, "stock.quant", "action_apply_inventory", [[qid]], ctx);
   return qid;
 }
