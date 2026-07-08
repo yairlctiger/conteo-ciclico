@@ -220,7 +220,7 @@ function setDot(s){ $("#dot").className = "dot" + (s ? " ok" : " err"); }
 api("ping").then(() => setDot(true)).catch(() => setDot(false));
 
 // ------- Estado global -------
-const S = { filterOpts: null, sucursales: null, selFilters: {}, selSuc: new Set(), manuales: new Map(), usuario: "" };
+const S = { filterOpts: null, sucursales: null, selFilters: {}, selSuc: new Set(), manuales: new Map(), adminAuth: false, usuario: "" };
 
 function goHome(){ $("#backBtn").style.display = "none"; renderGate(); }
 
@@ -231,7 +231,7 @@ function renderGate(){
   crumb("etcétera accesorios");
   stage.innerHTML = "";
   const g = el("div", "gate");
-  g.appendChild(role("pp", "Administración", "Crear tareas, revisar y aprobar, ver avance", svgAdmin, renderAdmin));
+  g.appendChild(role("pp", "Administración", "Crear tareas, revisar y aprobar, ver avance", svgAdmin, adminEntry));
   g.appendChild(role("", "Soy Sucursal", "Contar los productos que me enviaron", svgStore, renderSucursalStart));
   stage.appendChild(g);
 }
@@ -240,6 +240,24 @@ function role(cls, t, d, ic, fn){
   b.innerHTML = `<div class="ic">${ic}</div><div><div class="t">${t}</div><div class="d">${d}</div></div>`;
   b.onclick = () => { $("#backBtn").style.display = "inline-block"; fn(); };
   return b;
+}
+function adminEntry(){
+  if (S.adminAuth){ renderAdmin(); return; }
+  crumb("Administración");
+  stage.innerHTML = "";
+  const wrap = el("div", "gate");
+  const card = el("div", "card"); card.style.maxWidth = "360px"; card.style.margin = "8vh auto 0"; card.style.width = "100%";
+  card.innerHTML = `<h2 class="sec" style="margin-bottom:12px">Acceso a Administración</h2><label class="field-label">Contraseña</label>`;
+  const inp = el("input", "txt"); inp.type = "password"; inp.placeholder = "••••"; inp.inputMode = "numeric";
+  card.appendChild(inp);
+  const btn = el("button", "btn purple full"); btn.textContent = "Entrar"; btn.style.marginTop = "12px";
+  const err = el("div", "status err"); err.style.minHeight = "18px"; err.style.textAlign = "left"; err.style.marginTop = "6px";
+  const submit = () => { if (inp.value === "1234"){ S.adminAuth = true; renderAdmin(); } else { err.textContent = "Contraseña incorrecta."; inp.value = ""; inp.focus(); } };
+  btn.onclick = submit;
+  inp.onkeydown = (e) => { if (e.key === "Enter") submit(); };
+  card.appendChild(btn); card.appendChild(err);
+  wrap.appendChild(card); stage.appendChild(wrap);
+  setTimeout(() => inp.focus(), 60);
 }
 
 // =====================================================
@@ -519,7 +537,14 @@ async function renderTareas(body){
     revB.onclick = () => { selectedTarea=t.id; adminTab="revision"; renderAdmin(); };
     const closeB = el("button","btn ghost sm", t.estado==="cerrada"?"Reabrir":"Cerrar");
     closeB.onclick = async () => { await api("setTareaEstado",{tarea_id:t.id,estado:t.estado==="cerrada"?"activa":"cerrada"}); renderTareas(body); };
-    tb.appendChild(dashB); tb.appendChild(revB); tb.appendChild(closeB);
+    const delB = el("button","btn red sm","Eliminar");
+    delB.onclick = async () => {
+      if (!confirm(`¿Eliminar el conteo "${t.nombre}"?\nSe borrarán sus productos, sucursales y conteos. No se puede deshacer.`)) return;
+      delB.disabled = true; delB.textContent = "Eliminando…";
+      try { await api("eliminarTarea", { tarea_id: t.id }); renderTareas(body); }
+      catch(e){ delB.disabled = false; delB.textContent = "Eliminar"; alert(e.message); }
+    };
+    tb.appendChild(dashB); tb.appendChild(revB); tb.appendChild(closeB); tb.appendChild(delB);
     c.appendChild(tb);
     body.appendChild(c);
   });
@@ -593,7 +618,7 @@ async function renderRevisionSucList(box){
       allBtn.disabled=true; allBtn.innerHTML='<span class="spin"></span> Aprobando…';
       try {
         const r = await api("aprobarTodas",{tarea_id:selectedTarea, usuario:S.usuario||"admin"});
-        box.innerHTML = `<div class="status ok" style="padding:24px">✓ ${r.sucursales} sucursales aprobadas · ${r.lineas} líneas ajustadas en Odoo${r.aplicado?" (aplicado)":""}.</div>`;
+        box.innerHTML = `<div class="status ok" style="padding:24px">✓ ${r.sucursales} sucursales aprobadas · ${r.lineas} líneas ${r.aplicado?"aplicadas en Odoo":"registradas en Odoo (pendientes de aplicar)"}.</div>`;
         const bk=el("button","btn ghost full","← Volver"); bk.onclick=()=>{adminTab="revision";renderAdmin();}; box.appendChild(bk);
       } catch(e){ allBtn.disabled=false; allBtn.textContent="✓ Aprobar todas"; box.appendChild(el("div","status err",e.message)); }
     };
@@ -664,7 +689,7 @@ async function renderRevision(box, suc){
     appr.disabled=true; appr.innerHTML='<span class="spin"></span> Aprobando…';
     try {
       const r = await api("aprobarSucursal",{tarea_id:selectedTarea, location_id:suc.location_id, rechazadas:Array.from(rejected), usuario:S.usuario||"admin"});
-      box.innerHTML = `<div class="status ok" style="padding:24px">✓ ${r.aprobadas} líneas ajustadas en Odoo${r.aplicado?" (aplicado)":""}. ${r.rechazadas?r.rechazadas+" regresaron a la sucursal.":""}</div>`;
+      box.innerHTML = `<div class="status ok" style="padding:24px">✓ ${r.aprobadas} líneas ${r.aplicado?"ajustadas y aplicadas en Odoo":"registradas en Odoo (contadas, pendientes de aplicar)"}. ${r.rechazadas?r.rechazadas+" regresaron a la sucursal.":""}</div>`;
       const bk = el("button","btn ghost full","← Volver a sucursales"); bk.onclick=()=>{adminTab="revision";renderAdmin();}; box.appendChild(bk);
     } catch(e){ appr.disabled=false; appr.textContent="Aprobar sucursal"; box.appendChild(el("div","status err",e.message)); }
   };
@@ -722,7 +747,7 @@ async function renderCount(tarea){
   const head = el("div"); head.innerHTML = `<h2 class="sec">${esc(tarea.nombre)} — ${d.productos.length} productos</h2>`;
   stage.appendChild(head);
 
-  const search = el("input","txt searchbar"); search.placeholder="Buscar por nombre o código…"; search.style.marginBottom="4px";
+  const search = el("input","txt"); search.placeholder="Buscar por nombre o código…"; search.style.marginBottom="4px"; search.style.flex="none";
   stage.appendChild(search);
 
   const list = el("div","count-list"); stage.appendChild(list);
