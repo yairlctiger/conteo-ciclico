@@ -27,7 +27,7 @@ const SB_KEY = process.env.SUPABASE_SERVICE_KEY;
 // Al aprobar: true = aplica el ajuste en Odoo (cambia el on-hand).
 // false = solo deja la cantidad "contada" en el ajuste de inventario, lista
 // para aplicar manualmente en Odoo. Cámbialo si prefieres no aplicar.
-const APPLY_ON_APPROVE = true;
+const APPLY_ON_APPROVE = false;
 
 // Campos identificadores (selection) en product.template.
 const IDENT_FIELDS = [
@@ -113,6 +113,13 @@ async function sbPatch(query, body) {
     method: "PATCH", headers: sbHeaders({ Prefer: "return=minimal" }), body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error("Supabase patch: " + (await res.text()));
+  return { ok: true };
+}
+async function sbDelete(query) {
+  const res = await fetch(`${SB_URL}/rest/v1/${query}`, {
+    method: "DELETE", headers: sbHeaders({ Prefer: "return=minimal" }),
+  });
+  if (!res.ok) throw new Error("Supabase delete: " + (await res.text()));
   return { ok: true };
 }
 
@@ -430,22 +437,21 @@ async function branchDeUbicacion(uid, locationId) {
 }
 
 async function adjustOdoo(uid, productId, locationId, counted) {
-  // Usa la sucursal (branch) de la propia ubicación para el ajuste
+  // NO restringimos allowed_branch_ids: el usuario ya tiene sus sucursales.
+  // Solo fijamos la branch de la ubicación al CREAR el quant (si no existía).
   const branchId = await branchDeUbicacion(uid, locationId);
   const ctx = { context: { inventory_mode: true } };
-  if (branchId) { ctx.context.branch_id = branchId; ctx.context.allowed_branch_ids = [branchId]; }
   const ids = await execKw(uid, "stock.quant", "search", [[["product_id", "=", productId], ["location_id", "=", locationId]]], ctx);
   let qid;
   if (ids.length) {
     qid = ids[0];
-    const vals = { inventory_quantity: counted };
-    if (branchId) vals.branch_id = branchId;
-    await execKw(uid, "stock.quant", "write", [[qid], vals], ctx);
+    await execKw(uid, "stock.quant", "write", [[qid], { inventory_quantity: counted }], ctx);
   } else {
     const vals = { product_id: productId, location_id: locationId, inventory_quantity: counted };
     if (branchId) vals.branch_id = branchId;
     qid = await execKw(uid, "stock.quant", "create", [vals], ctx);
   }
+  // Con APPLY_ON_APPROVE=false NO se aplica: queda "contado" en Odoo, listo para aplicar ahí.
   if (APPLY_ON_APPROVE) await execKw(uid, "stock.quant", "action_apply_inventory", [[qid]], ctx);
   return qid;
 }
@@ -499,6 +505,12 @@ async function setTareaEstado(p) {
   return { ok: true };
 }
 
+// Eliminar una tarea completa (cascada por FK on delete cascade)
+async function eliminarTarea(p) {
+  await sbDelete(`cc_tareas?id=eq.${p.tarea_id}`);
+  return { ok: true };
+}
+
 // ---------- Handler ----------
 exports.handler = async (event) => {
   const headers = { "Content-Type": "application/json" };
@@ -527,6 +539,7 @@ exports.handler = async (event) => {
       case "aprobarSucursal": result = await aprobarSucursal(uid, payload); break;
       case "aprobarTodas": result = await aprobarTodas(uid, payload); break;
       case "setTareaEstado": result = await setTareaEstado(payload); break;
+      case "eliminarTarea": result = await eliminarTarea(payload); break;
       default: return { statusCode: 400, headers, body: JSON.stringify({ error: `Acción desconocida: ${action}` }) };
     }
     return { statusCode: 200, headers, body: JSON.stringify({ result }) };
